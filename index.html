@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard & Activity Detector</title>
+<style>
+:root{color-scheme:dark;--bg:#101522;--panel:#192235;--card:#222e45;--line:#34415b;--text:#eef3ff;--muted:#a8b4ca;--accent:#83a9ff}
+*{box-sizing:border-box}body{margin:0;padding:28px 16px;background:radial-gradient(ellipse at top,#1c2b49,#101522 65%);font:16px system-ui,sans-serif;color:var(--text)}main{max-width:760px;margin:auto}h1{font-size:clamp(25px,5vw,38px);margin:0 0 8px}.sub{color:var(--muted);margin:0 0 25px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;margin:14px 0}.status{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:#22c55e;margin-right:9px}.pill{background:var(--card);padding:7px 11px;border-radius:99px;color:var(--muted);font-size:13px}.keys{display:flex;flex-wrap:wrap;gap:9px;min-height:58px;align-items:center}.key{background:var(--card);border:1px solid var(--line);border-bottom:3px solid #536789;border-radius:10px;padding:10px 14px;font-weight:700}.muted{color:var(--muted)}.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stat{background:var(--card);border-radius:13px;padding:15px}.stat small{color:var(--muted)}.num{font-size:32px;font-weight:750;margin-top:4px}.loghead{display:flex;justify-content:space-between;align-items:center;gap:12px}button{background:var(--card);color:var(--text);border:1px solid var(--line);padding:8px 12px;border-radius:9px;cursor:pointer}button:hover{border-color:var(--accent)}.event{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}.event:last-child{border:0}.note{font-size:13px;line-height:1.55;color:var(--muted)}footer{text-align:center;color:var(--muted);font-size:12px;margin-top:22px}
+@media(max-width:480px){.panel{padding:15px}.event{font-size:12px;gap:6px}}
+</style>
+</head>
+<body><main>
+<h1>Keyboard & Activity Detector</h1><p class="sub">Одновременные нажатия клавиш, история активности и таймер присутствия</p>
+<section class="panel status"><div><span class="dot" id="dot"></span><strong id="presence">Ты на сайте</strong></div><span class="pill" id="focus">Вкладка активна</span></section>
+<section class="panel"><div class="status"><strong>Нажатые клавиши</strong><span class="muted" id="keyCount">0 одновременно</span></div><div class="keys" id="keys"><span class="muted">Нажми любую клавишу…</span></div></section>
+<div class="stats">
+<section class="stat"><small>Всего нажатий</small><div class="num" id="total">0</div></section>
+<section class="stat"><small>Комбинации (2+ клавиши)</small><div class="num" id="combos">0</div></section>
+<section class="stat" style="grid-column:1/-1"><small>Время активного присутствия на сайте</small><div class="num" id="activeTimer">00:00:00</div><small id="timerState">Таймер считает, пока вкладка видима и окно в фокусе</small></section>
+</div>
+<section class="panel"><div class="loghead"><strong>Последние события клавиатуры</strong><button id="reset">Сбросить</button></div><div id="log" class="muted" style="margin-top:12px">Ожидание нажатий…</div></section>
+<section class="panel"><div class="loghead"><strong>История активности вкладки</strong><span class="pill" id="activityCount">0 записей</span></div><div id="activityLog" class="muted" style="margin-top:12px">Ожидание изменений активности…</div></section>
+<section class="panel">
+<div class="loghead"><strong>Вопрос</strong><span class="pill">Поле для ответа</span></div>
+<h2 style="font-size:20px;margin:14px 0 10px">Все про самоподписные сертификаты</h2>
+<label for="certificateAnswer" class="muted" style="display:block;margin-bottom:8px">Ваш ответ</label>
+<textarea id="certificateAnswer" rows="6" placeholder="Введите ответ здесь…" style="display:block;width:100%;resize:vertical;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;line-height:1.5"></textarea>
+</section>
+<section class="panel note">Visible — вкладка видима; Hidden — вкладка скрыта; Focus — окно браузера в фокусе. Таймер увеличивается только когда вкладка видима и окно браузера в фокусе, и ставится на паузу при переключении на другую вкладку или приложение. Сайт не может определить, сидит ли человек физически перед компьютером. Нажатия и история остаются в этом браузере и никуда не отправляются.</section>
+<footer>Работает локально в браузере • Данные не отправляются на сервер</footer>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id),pressed=new Map();
+let total=0,combos=0,comboActive=false,events=[],activityEvents=[],activeMilliseconds=0,lastTick=Date.now(),wasActive=null;
+const names={Space:'SPACE',ShiftLeft:'SHIFT',ShiftRight:'SHIFT',ControlLeft:'CTRL',ControlRight:'CTRL',AltLeft:'ALT',AltRight:'ALT',MetaLeft:'WIN',MetaRight:'WIN',ArrowUp:'↑',ArrowDown:'↓',ArrowLeft:'←',ArrowRight:'→',Enter:'ENTER',Escape:'ESC',Backspace:'BACKSPACE',Tab:'TAB'};
+function isActive(){return !document.hidden&&document.hasFocus()}
+function duration(ms){let s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return [h,m,sec].map(v=>String(v).padStart(2,'0')).join(':')}
+function render(){
+ $('keys').replaceChildren();
+ if(!pressed.size){const s=document.createElement('span');s.className='muted';s.textContent='Нажми любую клавишу…';$('keys').append(s)}
+ else for(const k of pressed.values()){const el=document.createElement('span');el.className='key';el.textContent=k;$('keys').append(el)}
+ $('keyCount').textContent=pressed.size+' одновременно';$('total').textContent=total;$('combos').textContent=combos;
+}
+function log(message){
+ events.unshift({message,time:new Date().toLocaleTimeString()});events=events.slice(0,7);$('log').replaceChildren();
+ for(const e of events){const row=document.createElement('div');row.className='event';const a=document.createElement('span'),b=document.createElement('span');a.textContent=e.message;b.textContent=e.time;row.append(a,b);$('log').append(row)}
+}
+function logActivity(){
+ const visible=!document.hidden,hidden=document.hidden,focus=document.hasFocus();
+ const row=document.createElement('div');row.className='event';
+ const left=document.createElement('span'),right=document.createElement('span');
+ left.textContent='Visible: '+visible+', Hidden: '+hidden+', Focus: '+focus;
+ right.textContent=new Date().toLocaleTimeString();row.append(left,right);$('activityLog').prepend(row);activityEvents.unshift(row);
+ while(activityEvents.length>100){activityEvents.pop().remove()}
+ $('activityCount').textContent=activityEvents.length+' записей';
+}
+function activity(){
+ const active=isActive();
+ if(wasActive===null){wasActive=active;logActivity()}
+ else if(active!==wasActive){logActivity();wasActive=active}
+ $('presence').textContent=active?'Ты на сайте':'Ты не на сайте';$('focus').textContent=active?'Вкладка активна':'Вкладка неактивна';
+ $('dot').style.background=active?'#22c55e':'#e58b45';$('timerState').textContent=active?'Таймер идёт':'Таймер на паузе — вкладка неактивна';
+ if(!active){
+  pressed.clear();comboActive=false;
+  activeMilliseconds=0;
+  $('activeTimer').textContent='00:00:00';
+  render();
+ }
+ lastTick=Date.now();
+}
+function tick(){const now=Date.now();if(isActive())activeMilliseconds+=Math.max(0,now-lastTick);lastTick=now;$('activeTimer').textContent=duration(activeMilliseconds)}
+window.addEventListener('keydown',e=>{
+ if(e.repeat)return;const key=names[e.code]||e.key.toUpperCase();
+ if(!pressed.has(e.code)){pressed.set(e.code,key);total++;
+  if(pressed.size>=2&&!comboActive){combos++;comboActive=true;log('Комбинация: '+[...pressed.values()].join(' + '))}
+  else log('Нажата: '+key);render()}
+});
+window.addEventListener('keyup',e=>{pressed.delete(e.code);if(pressed.size<2)comboActive=false;render()});
+window.addEventListener('blur',activity);window.addEventListener('focus',activity);document.addEventListener('visibilitychange',activity);
+$('reset').addEventListener('click',()=>{
+ total=0;combos=0;events=[];activityEvents.forEach(el=>el.remove());activityEvents=[];activeMilliseconds=0;pressed.clear();comboActive=false;
+ $('log').textContent='Ожидание нажатий…';$('activityLog').textContent='Ожидание изменений активности…';$('activityCount').textContent='0 записей';render();activity();tick();
+});
+activity();render();tick();setInterval(tick,250);
+})();
+</script></body></html>
